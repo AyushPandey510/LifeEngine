@@ -4,7 +4,7 @@ User registration and login with JWT tokens
 """
 from datetime import timedelta
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -144,10 +144,18 @@ async def login(
 
 @router.post("/refresh", response_model=Token)
 async def refresh_token(
-    refresh_token: str,
+    authorization: str = Header(None),
     db: AsyncSession = Depends(get_db)
 ):
     """Refresh access token using refresh token"""
+    # Extract token from Authorization header (Bearer token)
+    if not authorization or not authorization.startswith('Bearer '):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid authorization header"
+        )
+    
+    refresh_token = authorization.replace('Bearer ', '')
     try:
         payload = decode_token(refresh_token)
         user_id: str = payload.get("sub")

@@ -119,6 +119,10 @@ async def _generate_gemini_response(
         
     except Exception as e:
         logger.error("gemini_api_error", error=str(e))
+        # Check for quota exceeded - fall back to mock response
+        if "quota" in str(e).lower() or "429" in str(e):
+            logger.warning("gemini_quota_exceeded_using_mock")
+            return _mock_response(messages), 50
         raise
 
 

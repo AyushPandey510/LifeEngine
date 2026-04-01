@@ -31,10 +31,15 @@ export default function LoginPage() {
       
       const { access_token, refresh_token } = response.data
       
-      // Get user info
+      // Store tokens first so the interceptor can use them for subsequent requests
+      setAuth(null, access_token, refresh_token)
+      
+      // Fetch user info after tokens are stored
       const userResponse = await api.get('/auth/me')
       
+      // Update auth state with user info and tokens
       setAuth(userResponse.data, access_token, refresh_token)
+      
       navigate('/chat')
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Login failed. Please try again.')
