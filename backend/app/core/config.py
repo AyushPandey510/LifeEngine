@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     def REDIS_URL(self) -> str:
         if self.REDIS_URL_ENV:
             return self.REDIS_URL_ENV
+
+        # 🔥 prevent silent failure in production
+        if self.ENVIRONMENT == "production":
+            raise ValueError("REDIS_URL is not set in production")
+
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
     
     # AI / LLM
@@ -102,3 +107,6 @@ class Settings(BaseSettings):
 
 # Create settings instance
 settings = Settings()
+print("ENV:", settings.ENVIRONMENT)
+print("REDIS_URL_ENV:", settings.REDIS_URL_ENV)
+print("FINAL REDIS_URL:", settings.REDIS_URL)

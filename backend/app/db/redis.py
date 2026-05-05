@@ -9,21 +9,20 @@ from app.core.config import settings
 _redis_client: redis.Redis = None
 
 
-async def get_redis() -> redis.Redis:
-    """
-    Dependency that provides a Redis client
-    Usage in routes:
-        @router.get("/cache")
-        async def get_cache(redis_client: redis.Redis = Depends(get_redis)):
-    """
+async def get_redis() -> redis.Redis | None:
     global _redis_client
     if _redis_client is None:
-        _redis_client = redis.from_url(
-            settings.REDIS_URL,
-            encoding="utf-8",
-            decode_responses=True,
-            max_connections=20
-        )
+        try:
+            _redis_client = redis.from_url(
+                settings.REDIS_URL,
+                encoding="utf-8",
+                decode_responses=True,
+                max_connections=20
+            )
+            await _redis_client.ping()
+        except Exception as e:
+            print("Redis connection failed:", e)
+            return None
     return _redis_client
 
 
