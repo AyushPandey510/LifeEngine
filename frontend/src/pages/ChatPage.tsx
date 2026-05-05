@@ -58,9 +58,12 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  const accessToken = useAuthStore((state) => state.accessToken)
+
   useEffect(() => {
+    if (!accessToken) return
     loadConversations()
-  }, [])
+  }, [accessToken])
 
   useEffect(() => {
     if (selectedConversationId) {
@@ -118,7 +121,10 @@ export default function ChatPage() {
     setError('')
     try {
       const response = await api.get(`/chat/history/${conversationId}`)
-      setMessages(response.data.messages.map((item: any) => ({ role: item.role, content: item.content })))
+      setMessages(response.data.map((item: any) => ({
+        role: item.role,
+        content: item.content
+      })))
     } catch (err: any) {
       setError(extractErrorMessage(err))
     } finally {
@@ -126,20 +132,10 @@ export default function ChatPage() {
     }
   }
 
-  const createConversation = async () => {
-    setLoadingHistory(true)
-    setError('')
-    try {
-      const response = await api.post('/chat/conversations', { title: 'New project' })
-      setConversations((prev) => [response.data, ...prev])
-      setSelectedConversationId(response.data.id)
-      setMessages([])
-    } catch (err: any) {
-      setError(extractErrorMessage(err))
-    } finally {
-      setLoadingHistory(false)
-    }
-  }
+const createConversation = async () => {
+  setSelectedConversationId(null)
+  setMessages([])
+}
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
