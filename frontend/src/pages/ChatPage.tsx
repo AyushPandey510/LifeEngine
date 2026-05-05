@@ -163,12 +163,8 @@ export default function ChatPage() {
     try {
       let conversationId = selectedConversationId
       if (!conversationId) {
-        const conversationResponse = await api.post('/chat/conversations', { title: userMessage || fileToUpload?.name || 'New project' })
-        conversationId = conversationResponse.data.id
-        setSelectedConversationId(conversationId)
-        setConversations((prev) => [conversationResponse.data, ...prev])
+        conversationId = null
       }
-
       let uploadSummary = ''
       if (fileToUpload) {
         const formData = new FormData()

@@ -162,7 +162,10 @@ async def list_conversations(
 ):
     result = await db.execute(
         select(
-            Conversation,
+            Conversation.id,
+            Conversation.title,
+            Conversation.created_at,
+            Conversation.updated_at,
             func.count(Interaction.id).label("message_count"),
         )
         .outerjoin(
@@ -171,7 +174,12 @@ async def list_conversations(
             & (Interaction.user_id == current_user.id),
         )
         .where(Conversation.user_id == current_user.id)
-        .group_by(Conversation.id)
+        .group_by(
+            Conversation.id,
+            Conversation.title,
+            Conversation.created_at,
+            Conversation.updated_at,
+        )
         .order_by(Conversation.updated_at.desc())
     )
 
@@ -179,12 +187,12 @@ async def list_conversations(
 
     return [
         {
-            "id": convo.id,
-            "title": convo.title,
-            "message_count": count,
-            "created_at": convo.created_at,
+            "id": row.id,
+            "title": row.title,
+            "message_count": row.message_count,
+            "created_at": row.created_at,
         }
-        for convo, count in rows
+        for row in rows
     ]
 
 
