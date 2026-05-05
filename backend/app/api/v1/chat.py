@@ -82,10 +82,17 @@ async def send_message(
         # CALL AI (documents passed for relevance-based injection)
         # ------------------------
         messages = history + [{"role": "user", "content": request.message}]
-        ai_text, tokens = await generate_ai_response(
-            messages,
-            user_documents=user_documents,
-        )
+        try:
+            ai_text, tokens = await generate_ai_response(
+                messages,
+                user_documents=user_documents,
+            )
+        except Exception as e:
+            logger.error("AI_ERROR", error=str(e))
+
+            # fallback response so API doesn't crash
+            ai_text = "⚠️ AI is temporarily unavailable. Please try again."
+            tokens = 0
 
         # ------------------------
         # SAVE AI RESPONSE
