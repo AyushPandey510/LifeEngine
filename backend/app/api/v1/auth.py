@@ -67,6 +67,12 @@ async def register(
     db: AsyncSession = Depends(get_db)
 ):
     """Register a new user"""
+    if not user_data.consent_given:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Consent is required to create a Life Engine AI account"
+        )
+
     # Check if email already exists
     result = await db.execute(select(User).where(User.email == user_data.email))
     existing_user = result.scalar_one_or_none()
@@ -80,7 +86,8 @@ async def register(
     # Create new user
     user = User(
         email=user_data.email,
-        password_hash=get_password_hash(user_data.password)
+        password_hash=get_password_hash(user_data.password),
+        consent_given_at=datetime.now(timezone.utc)
     )
     
     db.add(user)

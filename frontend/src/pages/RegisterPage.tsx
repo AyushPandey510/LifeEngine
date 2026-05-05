@@ -7,6 +7,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [consentGiven, setConsentGiven] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
@@ -21,7 +22,8 @@ export default function RegisterPage() {
       const response = await api.post('/auth/register', {
         email,
         password,
-        display_name: displayName || null
+        display_name: displayName || null,
+        consent_given: consentGiven
       })
       
       // Auto login after registration
@@ -97,9 +99,22 @@ export default function RegisterPage() {
             />
           </div>
 
+          <label className="flex items-start gap-3 text-sm text-text-secondary">
+            <input
+              type="checkbox"
+              checked={consentGiven}
+              onChange={(e) => setConsentGiven(e.target.checked)}
+              className="mt-1 accent-[#E94560]"
+              required
+            />
+            <span>
+              I consent to Life Engine AI processing my profile and conversation data to provide personalized AI responses.
+            </span>
+          </label>
+
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !consentGiven}
             className="w-full py-3 bg-accent text-white font-medium rounded hover:bg-opacity-90 disabled:opacity-50 transition"
           >
             {loading ? 'Creating account...' : 'Create Account'}

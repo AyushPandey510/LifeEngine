@@ -5,17 +5,19 @@ Handles semantic memory using FAISS vector store
 import os
 import json
 import pickle
+from datetime import datetime, timezone
 import numpy as np
 import faiss
-from typing import List, Optional
+from typing import Any, List, Optional
 import structlog
 
+from app.core.config import settings
 from app.services.ai_service import generate_embedding
 
 logger = structlog.get_logger()
 
 # FAISS index storage directory
-FAISS_DIR = os.environ.get("FAISS_DIR", "/app/faiss_indexes")
+FAISS_DIR = settings.FAISS_DIR
 
 
 def _get_user_index_path(user_id: str) -> str:
@@ -54,60 +56,103 @@ def _save_user_index(user_id: str, index: faiss.IndexFlatIP, metadata: dict):
         logger.error("failed_to_save_faiss_index", user_id=user_id, error=str(e))
 
 
-async def store_interaction(user_id: str, user_message: str, ai_response: str):
+def _load_metadata(user_id: str) -> dict:
+    metadata_path = _get_user_index_path(user_id).replace("_index.pkl", "_meta.json")
+    if os.path.exists(metadata_path):
+        with open(metadata_path, "r") as f:
+            return json.load(f)
+    return {"count": 0, "messages": []}
+
+
+def _save_metadata(user_id: str, metadata: dict) -> None:
+    os.makedirs(FAISS_DIR, exist_ok=True)
+    metadata_path = _get_user_index_path(user_id).replace("_index.pkl", "_meta.json")
+    with open(metadata_path, "w") as f:
+        json.dump(metadata, f)
+
+
+async def store_memory_text(
+    user_id: str,
+    text: str,
+    *,
+    embedding_text: str | None = None,
+    conversation_id: str | None = None,
+    source: str = "chat",
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """Store one retrievable text item in the user's FAISS memory."""
+    try:
+        embedding = await generate_embedding(embedding_text or text)
+        embedding_array = np.array([embedding]).astype("float32")
+        faiss.normalize_L2(embedding_array)
+
+        index = _get_user_index(user_id)
+        if index is None:
+            index = faiss.IndexFlatIP(len(embedding))
+        elif index.d != len(embedding):
+            logger.warning(
+                "faiss_dimension_mismatch_skipping_memory",
+                user_id=user_id,
+                expected=index.d,
+                actual=len(embedding),
+            )
+            return
+
+        index.add(embedding_array)
+        metadata = _load_metadata(user_id)
+        metadata["count"] = int(metadata.get("count") or len(metadata.get("messages", []))) + 1
+        metadata.setdefault("messages", []).append({
+            "text": text[:2000],
+            "index": metadata["count"] - 1,
+            "conversation_id": conversation_id,
+            "source": source,
+            "extra": extra or {},
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+        _save_user_index(user_id, index, metadata)
+        _save_metadata(user_id, metadata)
+        logger.info("memory_text_stored", user_id=user_id, source=source, total_items=metadata["count"])
+    except Exception as e:
+        logger.error("failed_to_store_memory_text", user_id=user_id, source=source, error=str(e))
+
+
+async def store_interaction(
+    user_id: str,
+    user_message: str,
+    ai_response: str,
+    conversation_id: str | None = None,
+):
     """
     Store user-AI interaction in FAISS vector store
     Called asynchronously after each chat message
     """
     try:
-        # Combine user message and AI response for embedding
-        combined_text = f"User: {user_message}\nAI: {ai_response}"
-        
-        # Generate embedding
-        embedding = await generate_embedding(combined_text)
-        
-        # Convert to numpy array and normalize (for cosine similarity)
-        embedding_array = np.array([embedding]).astype("float32")
-        faiss.normalize_L2(embedding_array)
-        
-        # Get or create index
-        index = _get_user_index(user_id)
-        if index is None:
-            # Create new index with Inner Product (cosine similarity)
-            dimension = len(embedding)
-            index = faiss.IndexFlatIP(dimension)
-        
-        # Add embedding to index
-        index.add(embedding_array)
-        
-        # Load metadata or create new
-        metadata_path = _get_user_index_path(user_id).replace("_index.pkl", "_meta.json")
-        if os.path.exists(metadata_path):
-            with open(metadata_path, "r") as f:
-                metadata = json.load(f)
-        else:
-            metadata = {"count": 0, "messages": []}
-        
-        # Update metadata
-        metadata["count"] += 1
-        metadata["messages"].append({
-            "text": combined_text[:500],  # Store truncated text
-            "index": metadata["count"] - 1
-        })
-        
-        # Save index and metadata
-        _save_user_index(user_id, index, metadata)
-        
-        with open(metadata_path, "w") as f:
-            json.dump(metadata, f)
-        
-        logger.info("interaction_stored_in_memory", user_id=user_id, total_items=metadata["count"])
+        combined_text = f"User: {user_message}\nAssistant: {ai_response}"
+        await store_memory_text(
+            user_id,
+            combined_text,
+            embedding_text=user_message,
+            conversation_id=conversation_id,
+            source="chat",
+            extra={
+                "user_text": user_message[:1000],
+                "assistant_text": ai_response[:1000],
+            },
+        )
         
     except Exception as e:
         logger.error("failed_to_store_memory", user_id=user_id, error=str(e))
 
 
-async def retrieve_memories(user_id: str, current_message: str, top_k: int = 3) -> List[str]:
+async def retrieve_memories(
+    user_id: str,
+    current_message: str,
+    top_k: int = 3,
+    min_score: float = 0.25,
+    conversation_id: str | None = None,
+    include_global: bool = True,
+) -> List[str]:
     """
     Retrieve most relevant past conversations for current message
     
@@ -131,21 +176,28 @@ async def retrieve_memories(user_id: str, current_message: str, top_k: int = 3) 
         faiss.normalize_L2(query_array)
         
         # Search for similar vectors
-        distances, indices = index.search(query_array, min(top_k, index.ntotal))
+        search_k = min(max(top_k * 8, top_k), index.ntotal)
+        distances, indices = index.search(query_array, search_k)
         
         # Load metadata to get actual text
-        metadata_path = _get_user_index_path(user_id).replace("_index.pkl", "_meta.json")
-        if not os.path.exists(metadata_path):
-            return []
+        metadata = _load_metadata(user_id)
         
-        with open(metadata_path, "r") as f:
-            metadata = json.load(f)
-        
-        # Extract relevant messages
+        # Extract relevant messages. Low-score matches are ignored to avoid
+        # injecting unrelated personal context into the Future Self prompt.
         memories = []
-        for idx in indices[0]:
+        for score, idx in zip(distances[0], indices[0]):
             if idx >= 0 and idx < len(metadata.get("messages", [])):
-                memories.append(metadata["messages"][idx]["text"])
+                if float(score) >= min_score:
+                    item = metadata["messages"][idx]
+                    item_conversation_id = item.get("conversation_id")
+                    is_global = item_conversation_id is None and item.get("source") in {"document", "profile", "chat"}
+                    if conversation_id and item_conversation_id not in {None, conversation_id}:
+                        continue
+                    if item_conversation_id is None and not include_global and not is_global:
+                        continue
+                    text = item.get("text") or item.get("user_text") or ""
+                    if text:
+                        memories.append(text)
         
         # Apply recency boost
         # (can be enhanced with timestamps for more sophisticated boosting)
@@ -155,6 +207,41 @@ async def retrieve_memories(user_id: str, current_message: str, top_k: int = 3) 
     except Exception as e:
         logger.error("failed_to_retrieve_memories", user_id=user_id, error=str(e))
         return []
+
+
+def chunk_text(text: str, chunk_size: int = 1200, overlap: int = 150) -> list[str]:
+    """Split document text into overlapping chunks for retrieval."""
+    normalized = " ".join(text.split())
+    if not normalized:
+        return []
+    chunks = []
+    start = 0
+    while start < len(normalized):
+        end = min(len(normalized), start + chunk_size)
+        chunks.append(normalized[start:end])
+        if end == len(normalized):
+            break
+        start = max(0, end - overlap)
+    return chunks
+
+
+async def store_document_chunks(
+    user_id: str,
+    document_id: str,
+    filename: str,
+    text: str,
+    conversation_id: str | None = None,
+) -> None:
+    """Store parsed document chunks in retrieval memory."""
+    for index, chunk in enumerate(chunk_text(text)):
+        await store_memory_text(
+            user_id,
+            f"Document context from {filename}, chunk {index + 1}:\n{chunk}",
+            embedding_text=chunk,
+            conversation_id=conversation_id,
+            source="document",
+            extra={"document_id": document_id, "filename": filename, "chunk": index + 1},
+        )
 
 
 async def get_memory_count(user_id: str) -> int:

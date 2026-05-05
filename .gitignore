@@ -1,0 +1,56 @@
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Node / frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+frontend/dist/
+frontend/.vite/
+
+# Local app data
+backend/local_faiss_indexes/
+backend/faiss_indexes/
+backend/uploads/
+*.db
+*.sqlite
+*.sqlite3
+
+# Docker / local tooling
+pgadmin_servers.json
+backend/pgadmin_servers.json
+celerybeat-schedule
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

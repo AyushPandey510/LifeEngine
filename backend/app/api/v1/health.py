@@ -4,12 +4,13 @@ Provides health status for monitoring and load balancers
 """
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 import redis.asyncio as redis
 import structlog
 
-from app.core.config import settings
 from app.db.session import get_db
 from app.db.redis import get_redis
+from app.services.ai_service import check_groq_status
 
 logger = structlog.get_logger()
 
@@ -37,7 +38,7 @@ async def readiness_check(
     """
     try:
         # Check database
-        await db.execute("SELECT 1")
+        await db.execute(text("SELECT 1"))
         db_status = "connected"
     except Exception as e:
         logger.error("database_health_check_failed", error=str(e))
@@ -64,3 +65,9 @@ async def readiness_check(
 async def ping():
     """Simple ping endpoint for load balancer probes"""
     return {"ping": "pong"}
+
+
+@router.get("/health/groq")
+async def groq_health_check():
+    """GROQ connectivity and model readiness check."""
+    return await check_groq_status()
