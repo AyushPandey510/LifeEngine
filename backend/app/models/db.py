@@ -81,12 +81,7 @@ class Conversation(Base):
 
     user = relationship("User", back_populates="conversations")
 
-    # ✅ IMPORTANT (you were missing this)
-    interactions = relationship(
-        "Interaction",
-        primaryjoin="Conversation.id==foreign(Interaction.conversation_id)",
-        cascade="all, delete-orphan"
-    )
+    interactions = relationship("Interaction", back_populates="conversation", cascade="all, delete-orphan")
 
 
 # =========================
@@ -100,8 +95,7 @@ class Interaction(Base):
 
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    # ✅ FIXED (aligned everywhere)
-    conversation_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
 
     role = Column(String(20), nullable=False)  # user / assistant
     content = Column(Text, nullable=False)
@@ -118,11 +112,7 @@ class Interaction(Base):
 
     user = relationship("User", back_populates="interactions")
 
-    # ✅ IMPORTANT RELATIONSHIP
-    conversation = relationship(
-        "Conversation",
-        primaryjoin="foreign(Interaction.conversation_id)==Conversation.id"
-    )
+    conversation = relationship("Conversation", back_populates="interactions")
 
 
 # =========================
